@@ -10,9 +10,33 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/acme/autocert"
 )
+
+type responseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rw *responseWriter) WriteHeader(status int) {
+	rw.status = status
+	rw.ResponseWriter.WriteHeader(status)
+}
+
+func accessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rw, r)
+		log.Printf("%s %s %d %s %s",
+			r.Method, r.URL.Path, rw.status,
+			time.Since(start).Round(time.Millisecond),
+			r.RemoteAddr,
+		)
+	})
+}
 
 type config struct {
 	proxyDomain      string
@@ -163,7 +187,7 @@ func main() {
 
 	httpsServer := &http.Server{
 		Addr:      ":443",
-		Handler:   httpsMux,
+		Handler:   accessLog(httpsMux),
 		TLSConfig: tlsConfig,
 	}
 
